@@ -58,6 +58,10 @@ class TestImport:
             in str(exc_info.value)
         )
 
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.io.import_rows('example7', [{'__unusable_name': 'abc'}])
+        assert 'Column names must be valid pixeltable identifiers' in str(exc_info.value)
+
     def test_import_json(self, reset_db) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'

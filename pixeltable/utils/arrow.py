@@ -4,10 +4,15 @@ from typing import Any, Iterator, Optional, Union
 import numpy as np
 import pyarrow as pa
 
+import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.io.globals import _find_or_create_table, _normalize_pxt_col_name, _normalize_schema_names
 
 PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
     pa.string(): ts.StringType(nullable=True),
+    pa.large_string(): ts.StringType(nullable=True),
+    pa.date32(): ts.TimestampType(nullable=True),
+    pa.timestamp('us', tz=datetime.timezone.utc): ts.TimestampType(nullable=True),
     pa.bool_(): ts.BoolType(nullable=True),
     pa.uint8(): ts.IntType(nullable=True),
     pa.int8(): ts.IntType(nullable=True),
@@ -16,6 +21,7 @@ PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
     pa.int32(): ts.IntType(nullable=True),
     pa.int64(): ts.IntType(nullable=True),
     pa.float32(): ts.FloatType(nullable=True),
+    pa.float64(): ts.FloatType(nullable=True),
 }
 
 PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
@@ -61,8 +67,19 @@ def to_arrow_type(pixeltable_type: ts.ColumnType) -> Optional[pa.DataType]:
         return None
 
 
-def to_pixeltable_schema(arrow_schema: pa.Schema) -> dict[str, ts.ColumnType]:
-    return {field.name: to_pixeltable_type(field.type) for field in arrow_schema}
+def ar_infer_schema(
+    arrow_schema: pa.Schema, schema_overrides: Optional[dict[str, ts.ColumnType]] = None
+) -> dict[str, pxt.ColumnType]:
+    """Convert a pyarrow Schema to a schema using pyarrow names and pixeltable types."""
+    if schema_overrides is None:
+        schema_overrides = {}
+    ar_schema = {
+        field.name: to_pixeltable_type(field.type)
+        if field.name not in schema_overrides
+        else schema_overrides[field.name]
+        for field in arrow_schema
+    }
+    return ar_schema
 
 
 def to_arrow_schema(pixeltable_schema: dict[str, Any]) -> pa.Schema:
@@ -96,3 +113,21 @@ def iter_tuples(batch: Union[pa.Table, pa.RecordBatch]) -> Iterator[dict[str, An
 
     for i in range(batch_size):
         yield {col_name: values[i] for col_name, values in pydict.items()}
+
+
+def iter_tuples2(
+    batch: Union[pa.Table, pa.RecordBatch], mapping: dict[str, str], schema: dict[str, pxt.ColumnType]
+) -> Iterator[dict[str, Any]]:
+    """Convert a RecordBatch to an iterator of dictionaries. also works with pa.Table and pa.RowGroup"""
+    pydict = to_pydict(batch)
+    assert len(pydict) > 0, 'empty record batch'
+    for _, v in pydict.items():
+        batch_size = len(v)
+        break
+
+    for i in range(batch_size):
+        # Convert a row to insertable format
+        yield {
+            mapping[col_name]: schema[mapping[col_name]].create_literal(values[i])
+            for col_name, values in pydict.items()
+        }

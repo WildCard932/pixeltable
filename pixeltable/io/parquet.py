@@ -148,17 +148,6 @@ def export_parquet(
         _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
 
 
-def parquet_schema_to_pixeltable_schema(parquet_path: str) -> dict[str, Optional[ts.ColumnType]]:
-    """Generate a default pixeltable schema for the given parquet file. Returns None for unknown types."""
-    from pyarrow import parquet
-
-    from pixeltable.utils.arrow import to_pixeltable_schema
-
-    input_path = Path(parquet_path).expanduser()
-    parquet_dataset = parquet.ParquetDataset(str(input_path))
-    return to_pixeltable_schema(parquet_dataset.schema)
-
-
 def import_parquet(
     table: str, *, parquet_path: str, schema_overrides: Optional[dict[str, ts.ColumnType]] = None, **kwargs: Any
 ) -> pxt.Table:
@@ -179,19 +168,20 @@ def import_parquet(
     from pyarrow import parquet
 
     import pixeltable as pxt
-    from pixeltable.utils.arrow import iter_tuples
+    from pixeltable.io.globals import _normalize_schema_names
+    from pixeltable.utils.arrow import ar_infer_schema, iter_tuples2
 
     input_path = Path(parquet_path).expanduser()
     parquet_dataset = parquet.ParquetDataset(str(input_path))
 
-    schema = parquet_schema_to_pixeltable_schema(parquet_path)
-    if schema_overrides is None:
-        schema_overrides = {}
+    print(parquet_dataset.schema)
 
-    schema.update(schema_overrides)
-    for k, v in schema.items():
+    ar_schema = ar_infer_schema(parquet_dataset.schema, schema_overrides)
+
+    for k, v in ar_schema.items():
         if v is None:
             raise exc.Error(f'Could not infer pixeltable type for column {k} from parquet file')
+    schema, mapping = _normalize_schema_names(ar_schema, False)
 
     if table in pxt.list_tables():
         raise exc.Error(f'Table {table} already exists')
@@ -201,7 +191,7 @@ def import_parquet(
         tab = pxt.create_table(tmp_name, schema, **kwargs)
         for fragment in parquet_dataset.fragments:  # type: ignore[attr-defined]
             for batch in fragment.to_batches():
-                dict_batch = list(iter_tuples(batch))
+                dict_batch = list(iter_tuples2(batch, mapping, schema))
                 tab.insert(dict_batch)
     except Exception as e:
         _logger.error(f'Error while inserting Parquet file into table: {e}')

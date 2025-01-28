@@ -15,6 +15,48 @@ if TYPE_CHECKING:
 
 
 class TestParquet:
+    def test_import_parquet_examples(self, reset_db, tmp_path: pathlib.Path) -> None:
+        skip_test_if_not_installed('pyarrow')
+        import pandas as pd
+        import pyarrow as pa
+        from pyarrow import parquet
+
+        pdts = []
+        pqts = []
+        test_path = 'tests/data/datasets/'
+        file_list = [
+            'bank_failures.parquet',
+            'gold_vs_bitcoin.parquet',
+            'iris.parquet',
+            'search_trends.parquet',
+            'table.parquet',
+            'taq.parquet',
+            'titanic.parquet',
+            'userdata.parquet',
+            'v0.7.1.parquet',
+            'v0.7.1.column-metadata-handling-2.parquet',
+            'v0.7.1.some-named-index.parquet',
+            'v0.7.1.all-named-index.parquet',
+            #            'transactions-t4-20.parquet'
+        ]
+        for i, fn in enumerate(file_list):
+            xfile = test_path + fn
+            pddf = pd.read_parquet(xfile)
+            print(len(pddf))
+            print(pddf.dtypes)
+            print(pddf.head())
+            pdname = 'pdtable_' + str(i)
+            pdts.append(pxt.io.import_pandas(pdname, pddf))
+            pqname = 'pqtable_' + str(i)
+            pqts.append(pxt.io.import_parquet(pqname, parquet_path=xfile))
+        i = 0
+        for fn, pdt, pqt in zip(file_list, pdts, pqts):
+            print(fn, 'row count: ', pqt.count())
+            if not pdt.columns == pqt.columns:
+                print(pdt.columns)
+                print(pqt.columns)
+            assert pdt.count() == pqt.count()
+
     def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
